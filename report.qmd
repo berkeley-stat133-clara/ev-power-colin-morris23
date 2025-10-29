@@ -1,34 +1,212 @@
 ---
-title: "EV Power - Lab 4 Project Report"
+title: "EV Power - Lab 4 Project Report: Comparing Price and Proportion
+of Clean Energy Ehroughout the US"
 format: typst
 ---
 
-# Example Solution 1
+
 
 ## **Part 0: libraries**
 
 ```{r}
-
+#| echo: false
+#| message: false
+#| warning: false
+#| output: false
+library(tidyverse)
+library(stringr)
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: Do states with higher renewable usage have lower average electricity prices?
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| output: false
+renew_2021 <- read_csv("data/renew-use-2021.csv")
+renew_2022 <- read_csv("data/renew-use-2022.csv")
+renew_2023 <- read_csv("data/renew-use-2023.csv")
+total_2021 <- read_csv("data/total-use-2021.csv")
+total_2022 <- read_csv("data/total-use-2022.csv")
+total_2023 <- read_csv("data/total-use-2023.csv")
+price_data <- read_csv("data/av-energy-price-2021-2023.csv", skip = 2)
+```
+
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| output: false
+clean_renewable_data <- function(df, year) {
+  df_clean <- df |>
+    rename_with(tolower) |>
+    rename_with(~str_replace_all(., " ", "_")) |>
+    rename(renewable_use = starts_with("renewable_use")) |>
+    mutate(state = str_trim(state),
+           state = toupper(state)) |>
+    
+    mutate(renewable_use = str_remove_all(renewable_use, "about|≈|~|\\$|USD|MMBtu|per|est|Btu|\\."),
+           renewable_use = str_remove_all(renewable_use, "[A-Za-z]"),  
+           renewable_use = str_trim(renewable_use),
+           renewable_use = as.numeric(renewable_use)) |>
+    filter(!is.na(renewable_use)) |>
+    mutate(year = year,
+           energy_source = str_trim(energy_source),
+           energy_source = str_to_title(energy_source))
+    return(df_clean)
+}
+
+renew_2021_clean <- clean_renewable_data(renew_2021, 2021)
+renew_2022_clean <- clean_renewable_data(renew_2022, 2022)
+renew_2023_clean <- clean_renewable_data(renew_2023, 2023)
+
+clean_total_energy <- function(df, year) {
+  df_clean <- df |>
+    pivot_longer(cols = -Energy_Source, 
+                 names_to = "state", 
+                 values_to = "energy_use") |>
+    rename(energy_source = Energy_Source) |>
+    mutate(state = str_trim(state),
+           state = toupper(state)) |>
+    mutate(energy_use = as.numeric(energy_use)) |>
+    filter(!is.na(energy_use)) |>
+    mutate(year = year)
+  
+  return(df_clean)
+}
+
+total_2021_clean <- clean_total_energy(total_2021, 2021)
+total_2022_clean <- clean_total_energy(total_2022, 2022)
+total_2023_clean <- clean_total_energy(total_2023, 2023)
 
 ```
+
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| output: false
+split_cols <- str_split_fixed(price_data[[1]], ",", 4)
+price_data <- as_tibble(split_cols)
+colnames(price_data) <- c("state", "price_2021", "price_2022", "price_2023")
+
+price_clean <- price_data |>
+  mutate(state = str_remove_all(state, '"'),
+         price_2021 = str_remove_all(price_2021, '"'),
+         price_2022 = str_remove_all(price_2022, '"'),
+         price_2023 = str_remove_all(price_2023, '"')) |>
+  mutate(state = str_trim(state),
+         state = toupper(state)) |>
+  mutate(price_2021 = str_remove_all(price_2021, "\\$|about|≈|~|USD|per|MMBtu|est|Btu|\\."),
+         price_2021 = str_remove_all(price_2021, "[A-Za-z]"),
+         price_2021 = str_trim(price_2021),
+         price_2021 = as.numeric(price_2021)) |>
+  mutate(price_2022 = str_remove_all(price_2022, "\\$|about|≈|~|USD|per|MMBtu|est|Btu|\\."),
+         price_2022 = str_remove_all(price_2022, "[A-Za-z]"),
+         price_2022 = str_trim(price_2022),
+         price_2022 = as.numeric(price_2022)) |>
+  mutate(price_2023 = str_remove_all(price_2023, "\\$|about|≈|~|USD|per|MMBtu|est|Btu|\\."),
+         price_2023 = str_remove_all(price_2023, "[A-Za-z]"),
+         price_2023 = str_trim(price_2023),
+         price_2023 = as.numeric(price_2023))
+
+price_clean
+
+```
+
+
+
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
+
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+renew_all_years <- renew_2021_clean |>
+  full_join(renew_2022_clean) |>
+  full_join(renew_2023_clean)
+
+#joined all years for reneweable energy
+
+renewable_by_state_year <- renew_all_years |>
+  group_by(state, year) |>
+  summarize(total_renewable_use = sum(renewable_use, na.rm = TRUE), .groups = "drop")
+
+#organized by state and year
+
+total_all_years <- total_2021_clean |>
+  full_join(total_2022_clean) |>
+  full_join(total_2023_clean)
+
+total_energy_by_state_year <- total_all_years |>
+  group_by(state, year) |>
+  summarize(total_energy_all = sum(energy_use, na.rm = TRUE), .groups = "drop")
+
+energy_combined <- renewable_by_state_year |>
+  inner_join(total_energy_by_state_year, by = c("state", "year"))
+
+
+#created reneweable_percentage to eventually compare w avg price
+energy_combined <- energy_combined |>
+  mutate(renewable_percentage = (total_renewable_use / total_energy_all) * 100)
+
+price_long <- price_clean |>
+  pivot_longer(cols = c(price_2021, price_2022, price_2023),
+               names_to = "year",
+               values_to = "avg_price") |>
+  mutate(year = as.numeric(str_extract(year, "\\d+"))) |>
+  filter(!is.na(avg_price))
+
+
+final_data <- energy_combined |>
+  left_join(price_long, by = c("state", "year"))
+
+#has each states avg price and percentage of energy that us reneweable
+head(final_data)
 
 ```
 
-## **Part 4: Mapping Visualization**
+I joined the datasets that had the total renewable energy numbers, the total general energy numbers, and each states' avg energy price. I did this to create a table (part of which is above) that has a percentage of clean energy for each state in a given year. I also added the price variable so we can compare prices to percentage of energy that is clean. 
+
+
+## **Part 4: Mapping and Dashboard Visualization**
+
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| fig-width: 10
+#| fig-height: 6
+#| dpi: 300
 
+library(ggplot2)
+
+final_data |>
+  ggplot(aes(x = renewable_percentage, y = avg_price, color = renewable_percentage)) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_gradient(low = "red", high = "green", name = "Renewable %") +
+  facet_wrap(~year, ncol = 3) +
+  labs(title = "Renewable Energy % vs Electricity Price",
+       subtitle = "Each dot represents a state",
+       x = "Renewable Energy Percentage (%)",
+       y = "Average Energy Price ($ per MMBtu)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5))
 ```
+
+Conclusions: There does not a appear to be a clear relationship between avg energy price and percentage of clean energy that a given state uses (based on the visualizations). However, there are most likely a lot more variables that we need to take into account to do a more detailed analysis. For example, states with higher general costs of living are more likely to have higher energy costs. It still could be the case that using clean energy does imporove costs, but that places that use clean energy are in general more expensive for other reasons. An interesting insight the visualizations show are that energy prices increase dramatically from 2021 to 2022, presumably due to the Russia-Ukraine war and the resulting increase of gas prices. We also don't see too much movement in the direction of clean energy, which surprised me. 
+
